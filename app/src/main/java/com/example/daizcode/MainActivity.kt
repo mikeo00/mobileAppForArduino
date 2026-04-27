@@ -1,88 +1,74 @@
 package com.example.daizcode
 
-import android.content.res.ColorStateList
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
-import androidx.recyclerview.widget.LinearLayoutManager
-import com.example.daizcode.databinding.LayoutDashboardBinding
-import com.example.daizcode.ui.adapters.DetectionAdapter
-import com.example.daizcode.ui.viewmodel.DashboardViewModel
-import kotlinx.coroutines.launch
+import androidx.fragment.app.Fragment
+import com.example.daizcode.databinding.ActivityMainBinding
+import com.example.daizcode.ui.fragments.DashboardFragment
+import com.example.daizcode.ui.fragments.PartsFragment
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: LayoutDashboardBinding
-    private val viewModel: DashboardViewModel by viewModels()
-    private val adapter = DetectionAdapter()
+    private lateinit var binding: ActivityMainBinding
+
+    // Keep fragment instances so they survive tab switches
+    private val dashboardFragment = DashboardFragment()
+    private val partsFragment = PartsFragment()
+    private var activeFragment: Fragment = dashboardFragment
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
-        binding = LayoutDashboardBinding.inflate(layoutInflater)
+
+        binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, 0)
+            // Apply bottom padding to the fragment container, not the nav bar
+            binding.fragmentContainer.setPadding(0, 0, 0, 0)
             insets
         }
 
-        setupRecyclerView()
-        setupStatCards()
-        observeViewModel()
+        setupFragments()
+        setupBottomNav()
     }
 
-    private fun setupRecyclerView() {
-        binding.recyclerView.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = this@MainActivity.adapter
-        }
+    private fun setupFragments() {
+        // Add both fragments, hide the inactive one
+        supportFragmentManager.beginTransaction()
+            .add(R.id.fragmentContainer, partsFragment, "parts")
+            .hide(partsFragment)
+            .add(R.id.fragmentContainer, dashboardFragment, "dashboard")
+            .commit()
     }
 
-    private fun setupStatCards() {
-        // Total Card
-        binding.cardTotal.statTitle.text = "TOTAL"
-        binding.cardTotal.statAccentDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.accent_blue))
-        binding.cardTotal.statAccentBar.setBackgroundColor(ContextCompat.getColor(this, R.color.accent_blue))
-
-        // Good Card
-        binding.cardGood.statTitle.text = "GOOD"
-        binding.cardGood.statAccentDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.accent_green))
-        binding.cardGood.statAccentBar.setBackgroundColor(ContextCompat.getColor(this, R.color.accent_green))
-
-        // Defects Card
-        binding.cardDefects.statTitle.text = "DEFECTS"
-        binding.cardDefects.statAccentDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.accent_red))
-        binding.cardDefects.statAccentBar.setBackgroundColor(ContextCompat.getColor(this, R.color.accent_red))
-    }
-
-    private fun observeViewModel() {
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.state.collect { state ->
-                    // Update Stat Values
-                    binding.cardTotal.statValue.text = "%,d".format(state.totalProcessed)
-                    binding.cardGood.statValue.text = "%,d".format(state.goodCount)
-                    binding.cardDefects.statValue.text = "%,d".format(state.defectiveCount)
-                    
-                    // Update Charts
-                    binding.lineChart.setData(state.defectsPerMinute)
-                    binding.pieChart.setData(state.goodCount, state.defectiveCount)
-                    
-                    // Update Feed
-                    adapter.submitList(state.recentEvents)
-                    binding.eventCount.text = "${state.recentEvents.size} events"
+    private fun setupBottomNav() {
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_dashboard -> {
+                    switchFragment(dashboardFragment)
+                    true
                 }
+                R.id.nav_parts -> {
+                    switchFragment(partsFragment)
+                    true
+                }
+                else -> false
             }
         }
+    }
+
+    private fun switchFragment(target: Fragment) {
+        if (target == activeFragment) return
+        supportFragmentManager.beginTransaction()
+            .hide(activeFragment)
+            .show(target)
+            .commit()
+        activeFragment = target
     }
 }

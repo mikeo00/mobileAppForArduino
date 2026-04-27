@@ -5,8 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.daizcode.data.model.DashboardState
 import com.example.daizcode.data.model.DetectionEvent
 import com.example.daizcode.data.model.DetectionStatus
-import com.example.daizcode.data.repository.FakeDetectionRepository
-import kotlinx.coroutines.delay
+import com.example.daizcode.data.repository.EspDetectionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,32 +17,31 @@ import java.util.Locale
 
 /**
  * ViewModel for the dashboard screen.
- * Collects events from the fake repository and maintains the dashboard state.
+ * Fetches detections from the ESP32 and updates the dashboard state.
+ * Each fetch reads ALL JSON lines the ESP sends in one connection.
  */
 class DashboardViewModel : ViewModel() {
 
-    private val repository = FakeDetectionRepository()
+    private val repository = EspDetectionRepository()
 
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
 
-    // Track defects in current minute window for the line chart
-    private var defectsInCurrentWindow = 0
-    private val maxChartPoints = 20 // Keep last 20 data points on chart
-
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     init {
-        startCollecting()
-        startDefectsPerMinuteTracker()
+        fetchFromEsp()
     }
 
     /**
-     * Collects detection events and updates state in real-time.
+     * Connects to the ESP32 once, fetches ALL detection results it sends,
+     * and updates the dashboard state with each one. Does NOT loop.
+     * Can be called again (e.g. from a button) to trigger a new scan.
      */
-    private fun startCollecting() {
+    fun fetchFromEsp() {
         viewModelScope.launch {
-            repository.getDetectionStream().collect { event ->
+            val events = repository.fetchDetections()
+            for (event in events) {
                 processEvent(event)
             }
         }
@@ -53,10 +51,6 @@ class DashboardViewModel : ViewModel() {
      * Processes a single detection event and updates the dashboard state.
      */
     private fun processEvent(event: DetectionEvent) {
-        if (event.status == DetectionStatus.DEFECTIVE) {
-            defectsInCurrentWindow++
-        }
-
         _state.update { current ->
             val newTotal = current.totalProcessed + 1
             val newGood = if (event.status == DetectionStatus.GOOD) current.goodCount + 1 else current.goodCount
@@ -65,36 +59,19 @@ class DashboardViewModel : ViewModel() {
             // Keep last 50 recent events
             val updatedEvents = listOf(event) + current.recentEvents.take(49)
 
+            // Add a chart data point for this detection
+            val defectValue = if (event.status == DetectionStatus.DEFECTIVE) 1f else 0f
+            val updatedDefects = (current.defectsPerMinute + defectValue).takeLast(20)
+            val updatedLabels = (current.timeLabels + timeFormat.format(Date())).takeLast(20)
+
             current.copy(
                 totalProcessed = newTotal,
                 goodCount = newGood,
                 defectiveCount = newDefective,
-                recentEvents = updatedEvents
+                recentEvents = updatedEvents,
+                defectsPerMinute = updatedDefects,
+                timeLabels = updatedLabels
             )
-        }
-    }
-
-    /**
-     * Every 10 seconds, snapshot the defect count and push to the chart data.
-     * This simulates "defects per minute" as a rolling window.
-     */
-    private fun startDefectsPerMinuteTracker() {
-        viewModelScope.launch {
-            while (true) {
-                delay(10_000L) // Sample every 10 seconds for visible chart updates
-                val defectCount = defectsInCurrentWindow.toFloat()
-                defectsInCurrentWindow = 0
-
-                _state.update { current ->
-                    val updatedDefects = (current.defectsPerMinute + defectCount).takeLast(maxChartPoints)
-                    val updatedLabels = (current.timeLabels + timeFormat.format(Date())).takeLast(maxChartPoints)
-
-                    current.copy(
-                        defectsPerMinute = updatedDefects,
-                        timeLabels = updatedLabels
-                    )
-                }
-            }
         }
     }
 }

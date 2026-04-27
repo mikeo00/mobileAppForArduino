@@ -20,5 +20,6 @@ enum class DetectionStatus {
 enum class ObjectType(val displayName: String) {
     BOLT("Bolt"),
     GEAR("Gear"),
-    SCREW("Screw")
+    SCREW("Screw"),
+    NUT("Nut")
 }
